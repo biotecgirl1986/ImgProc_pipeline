@@ -39,7 +39,7 @@ nuc.cycle = [];
 nuc.name = [];
 nuc.box = [];
 nuc.filiation = [];
-        
+
 %% Create and hide the GUI figure as it is being constructed.
 segfigure = figure('Visible','on','Tag','segfigure','Position',[figX1,figY1,figX2,figY2]);
 set ( gcf, 'Color', [0 0 0] )
@@ -92,9 +92,12 @@ hbwminus = uicontrol('Style','pushbutton','String', 'BW-',...
     'Position',[190,730,30,20],...
     'Callback',@hbwminus_Callback);
 
-hshow = uicontrol('Style','togglebutton','String', 'Show (X)',...
+hshow = uicontrol('Style','pushbutton','String', 'Show (X)',...
     'Position',[160,670,60,20],...
     'Callback',@hshow_Callback);
+
+hcheckecc = uicontrol('Style','checkbox','String', 'Check ecc',...
+    'Position',[250,730,90,20]);
 
 hremove = uicontrol('Style','pushbutton','String', 'Remove (R)',...
     'Position',[230,670,60,20],...
@@ -150,7 +153,7 @@ imshow(BWop);
 set([segfigure,ha,hmessages...
     hbw,hpath,hloadbutton,hquitbutton,...
     hframe,hopen,hsegment,hbwplus,hbwminus,hchoice...
-    hshow,hadd,hremove,...
+    hshow,hcheckecc,hadd,hremove,...
     hautosegfw,hautosegbk,hautosegfwf,hautosegbkf,...
     hsavebw,hloadbw,htrack],...
     'Units','normalized');
@@ -206,6 +209,7 @@ set(segfigure,'Visible','on')
         frame = get(hframe,'Value');
         frame = round(frame);
         set(hframe,'Value',frame);
+        
         showI(Img(:,:,frame),BW(:,:,frame));
         set(hmessages,'String',['Frame ',num2str(frame)]);
     end
@@ -257,13 +261,7 @@ set(segfigure,'Visible','on')
     
     % Show button - add mask over the image in Panel 2.
     function hshow_Callback(~,~)
-        show_state = get(hshow,'Value');
-        if show_state == get(hshow,'Max')
-            showBW = 1;
-        end
-        if show_state == get(hshow,'Min')
-            showBW = 0;
-        end
+        showBW=1-showBW;
         showI(Img(:,:,frame),BW(:,:,frame));
     end
 
@@ -272,7 +270,6 @@ set(segfigure,'Visible','on')
         [x,y] = getpts(hbw);
         BW2 = bwselect(BW(:,:,frame),x,y, 8);
         BW(:,:,frame) = BW(:,:,frame)-BW2;
-        showbw(BW(:,:,frame));
         showI(Img(:,:,frame),BW(:,:,frame));
     end
 
@@ -295,7 +292,6 @@ set(segfigure,'Visible','on')
         BW(r(2):r(2)+r(4),r(1):r(1)+r(3),frame) = BW(r(2):r(2)+r(4),r(1):r(1)+r(3),frame)|BWtemp;
         [idx,ixy] = find(BW(:,:,frame)==2);
         BW(idx,ixy,frame)=ones;
-        showbw(BW(:,:,frame));
         showI(Img(:,:,frame),BW(:,:,frame));
     end
 
@@ -310,25 +306,22 @@ set(segfigure,'Visible','on')
                 %BW(:,:,frame) = imfill(BW(:,:,frame),'holes');
                 BW(:,:,frame) = imclearborder(BW(:,:,frame));
         end
-        showbw(BW(:,:,frame));
         showI(Img(:,:,frame),BW(:,:,frame));
     end
 
     % Expanding the size of the mask
     function hbwplus_Callback(~,~)
         if numel(unique(BW(:,:,frame)))<3 % Only work if it is already a mask
-            h=[1 1;1 1];
-            BW(:,:,frame)=double(conv2(BW(:,:,frame),h,'same')>=1);            
-            showbw(BW(:,:,frame));
+            h=[1 1 1;1 1 1;1 1 1];
+            BW(:,:,frame)=double(conv2(BW(:,:,frame),h,'same')>=1);    
             showI(Img(:,:,frame),BW(:,:,frame));
         end
     end
 
     function hbwminus_Callback(~,~)
         if numel(unique(BW(:,:,frame)))<3 % Only work if it is already a mask
-            h=[1 1;1 1];
+            h=[1 1 1;1 1 1;1 1 1];
             BW(:,:,frame)=1-double(conv2(1-BW(:,:,frame),h,'same')>=1);
-            showbw(BW(:,:,frame));
             showI(Img(:,:,frame),BW(:,:,frame));
         end
     end
@@ -411,13 +404,13 @@ set(segfigure,'Visible','on')
         k = strfind(FileName,'.');
         temp = load([PathName,FileName(1:k-1),'_Mask.mat']);
         BW = temp.BW;
-        showbw(BW(:,:,frame))
+        showI(BW(:,:,frame))
     end
 
     % Track nuclei identity
     function htrack_Callback(~,~)
         % Count cell:
-        count_cell();
+        %count_cell();
         
         % Create a panel to vísualize the process
         tempfig = figure('Name','tracking...');
@@ -442,6 +435,7 @@ set(segfigure,'Visible','on')
             countnuc = countnuc+1;
         end
         BWL(:,:,locframe) =  bwtemp;
+        % Update the list of active nuclei 
         nucActive{locframe} = find(nuc.frames(:,locframe)==1);
         
         RGB = label2rgb(BWL(:,:,locframe),'lines','k');
@@ -499,7 +493,7 @@ set(segfigure,'Visible','on')
                     bwtemp2 = bwtemp2.*BWL(:,:,locframe-1);
                     idx = find(bwtemp2,1);
                     if isempty(idx)
-                        Nnuc(locframe)=Nnuc(locframe)-1
+                        Nnuc(locframe)=Nnuc(locframe)-1;
                     else
                         ident = bwtemp2(idx);
                         if (sum(ident==idxdouble)>0)
@@ -530,7 +524,7 @@ set(segfigure,'Visible','on')
                 end
             end
             BWL(:,:,locframe) =  bwtemp;
-            nucActive{locframe} = find(nuc.frames(:,locframe)==1);
+            nucAtive{locframe} = find(nuc.frames(:,locframe)==1);
             RGB = label2rgb(BWL(:,:,locframe),'lines','k');
             clf
             imshow(RGB,[]);
@@ -561,6 +555,9 @@ set(segfigure,'Visible','on')
 %% Functions
     function showI(image,bwi)
         axes(ha);
+        if ~exist('bwi','var')
+            bwi=zeros(size(image));
+        end
         if showBW == 0
             imshow(image);
         end
@@ -575,28 +572,24 @@ set(segfigure,'Visible','on')
             imshow(uint8(ImBW));
         end
         axes(hbw);
-        imshow(bwi,[]);
-    end
-
-    function showbw(bwimage)
-        axes(hbw);
-        imshow(bwimage,[]);
+        bwodd=zeros(size(bwi));        
+        if (get(hcheckecc,'Value') ==1)&&(numel(unique(bwi))>1)
+            % Find odd looking cells
+            CC = bwconncomp(bwi,8);
+            stats = regionprops(CC,'Eccentricity');
+            sizerec = cellfun(@numel,CC.PixelIdxList);
+            oddnuclei=find(([stats.Eccentricity]>0.8)|(sizerec<50));
+            for i=oddnuclei
+                bwodd(CC.PixelIdxList{i})=1;
+            end
+        end
+        imshow(bwi*0.6+bwodd,[]);
     end
 
     function showop(opimage)
         axes(hbw);
         imshow(opimage,[]);
     end
-
-   function showbwl(bwlimage)
-        axes(hbw);
-        RGB = label2rgb(bwlimage,'lines','k');
-        imshow(RGB,[]);
-        hold on
-        texts = cat(1,{nuc.name{nucActive{frame},frame}});
-        posal = cat(1,nuc.positions{nucActive{frame},frame});
-        text(posal(:,1),posal(:,2),texts,'FontSize',14,'FontWeight','bold','Color','w','HorizontalAlignment','center')
-   end
 
     function bwo = segment(bw)
         l = graythresh(uint8(bw));
@@ -640,8 +633,6 @@ set(segfigure,'Visible','on')
 
     function [centers,R,num] = getdisks(bw)
         [BL,num] = bwlabel(bw);
-        %rgb = label2rgb(BL,'jet', 'k', 'shuffle');
-        %showbw(rgb);
         s  = regionprops(BL,'centroid','Area','BoundingBox');
         area = cat(1, s.Area);
         centers = cat(1, s.Centroid);
@@ -671,19 +662,8 @@ set(segfigure,'Visible','on')
             rect = [centers(i,1),centers(i,2),3*R,3*R];
             cropi1 = imcrop(pIm1,rect);
             cropi2 = imcrop(pIm2,rect);
-            %size(cropi1)
-
-
-            %cropi1 = double(cropi1).*w;
-            %cropi2 = double(cropi2).*w;
-            %cropi1 = imfilter(cropi1,f1,'replicate');
-            %cropi2 = imfilter(cropi1,f1,'replicate');
             C = normxcorr2(cropi1,cropi2);
-            % figure(10)
-            % imshow(C,[])
-           %C = imfilter(C,f1,'replicate');
-%             figure(3)
-%             surfc(C)
+            
             [max_c, imax] = max(C(:));
             [ypeak, xpeak] = ind2sub(size(C),imax(1));
             xpeak = xpeak-size(cropi1,2);%+R;
@@ -714,22 +694,7 @@ set(segfigure,'Visible','on')
         end
     end
 
-%     function SE = getpatron(Im,centers,R,num);
-%         all = zeros(3*R,3*R,num);
-%          padsize = ceil(R+R/2);
-%         pIm = padarray(Im,[padsize padsize],'symmetric');
-%         for i=1:num
-%             rect = [centers(i,1),centers(i,2),3*R,3*R];
-%             all(:,:,i) = imcrop(pIm,rect);
-%         end
-%         SE = mean(double(all),3);
-%         f1 = fspecial('disk',R);
-%         f1 = padarray(f1,[R R]);
-%         SE = SE.*f1;
-%         SE = SE./max(max(SE));
-%         figure()
-%     end
-
+    % Propagate to the next frame
     function propagate_next()
         deltaframe = 1;
         frame = frame + deltaframe;
@@ -741,9 +706,7 @@ set(segfigure,'Visible','on')
         end
         set(hframe,'Value',frame);
         hopen_Callback();
-        hsegment_Callback();
-        set(hmessages,'String',['Frame ',num2str(frame)]);
-        
+        hsegment_Callback();        
     end
     
     function count_cell()
@@ -757,9 +720,9 @@ set(segfigure,'Visible','on')
             CC = bwconncomp(BW(:,:,locframe),8);
             stats = regionprops(CC,'Centroid','BoundingBox');
             Nnuc(locframe) = CC.NumObjects;
-        end
-        figure;
-        plot(Nnuc);
+       end
+       figure;
+       plot(Nnuc);
     end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % HOTKEY HOTKEY HOTKEY
@@ -777,9 +740,9 @@ set(segfigure,'Visible','on')
                 hshow_Callback();
             case 'space'
                 propagate_next();
-            case '['
+            case 'o'
                 hbwplus_Callback();
-            case ']'
+            case 'p'
                 hbwminus_Callback();
             case 'f1'
                 show_help();
@@ -806,8 +769,9 @@ set(segfigure,'Visible','on')
             '      S: automatic segmentation of the current frame',...
             '      A: add a mask (using panel 2)',...
             '      R: remove a mask (using panel 1)',...
-            '      [: increase mask size by 1',...
-            '      ]: decrease mask size by 1',...
+            '      O: increase mask size by 1',...
+            '      P: decrease mask size by 1',...
+            '      Space: Mask the next frame using the same setting',...
             '',...
             'Hints',...
             '      Always save the mask before Track'...
