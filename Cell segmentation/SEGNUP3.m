@@ -28,17 +28,12 @@ Img = [];
 BW = [];
 BWL = [];
 Nnuc = [];
-nucActive = [];
+nucActive = {};
 open = 1;
 seg = 0;
 
-nuc.frames = [];
-nuc.positions = [];
-nuc.pixels = [];
-nuc.cycle = [];
-nuc.name = [];
-nuc.box = [];
-nuc.filiation = [];
+nuc = struct;    % Record of nuclei
+
 
 %% Create and hide the GUI figure as it is being constructed.
 segfigure = figure('Visible','on','Tag','segfigure','Position',[figX1,figY1,figX2,figY2]);
@@ -109,11 +104,11 @@ hadd = uicontrol('Style','togglebutton','String', 'Add (A)',...
 
 hautosegfw = uicontrol('Style','pushbutton','String', 'Seg FW',...
     'Position',[300,670,60,20],...
-    'Callback',@hautosegfw_Callback);
+    'Callback',@hautosegfw_Callback,'Enable', 'off');
 
 hautosegbk = uicontrol('Style','pushbutton','String', 'Seg BK',...
     'Position',[300,700,60,20],...
-    'Callback',@hautosegbk_Callback);
+    'Callback',@hautosegbk_Callback, 'Enable', 'off');
 
 hautosegbkf = uicontrol('Style','edit','String', '1',...
     'Position',[350,700,30,20],...
@@ -135,6 +130,10 @@ htrack = uicontrol('Style','pushbutton','String', 'Track',...
     'Position',[640,670,100,40],...
     'Callback',@htrack_Callback);
 
+hchecktrack = uicontrol('Style','pushbutton','String', 'Check Track',...
+    'Position',[760,670,100,40],...
+    'Callback',@hchecktrack_Callback);
+
 %% Create axes and display image
 ImgOp = zeros(100,100);
 sI = size(ImgOp);
@@ -155,7 +154,7 @@ set([segfigure,ha,hmessages...
     hframe,hopen,hsegment,hbwplus,hbwminus,hchoice...
     hshow,hcheckecc,hadd,hremove,...
     hautosegfw,hautosegbk,hautosegfwf,hautosegbkf,...
-    hsavebw,hloadbw,htrack],...
+    hsavebw,hloadbw,htrack,hchecktrack],...
     'Units','normalized');
 %% Final settings
 % Assign the GUI a name to appear in the window title.
@@ -397,7 +396,14 @@ set(segfigure,'Visible','on')
 
     function hsavebw_Callback(~,~)
         k = strfind(FileName,'.');
-        save([PathName,FileName(1:k-1),'_Mask.mat'],'BW');
+        maskfile=[PathName,FileName(1:k-1),'_Mask.mat'];
+        if ~exist(maskfile,'file')
+            save(maskfile,'BW');
+        else
+            if strcmp(questdlg('Do you want to overwrite?','File exists','Yes','No','Yes'),'Yes')
+                save(maskfile,'BW');
+            end
+        end
     end
 
     function hloadbw_Callback(~,~)
@@ -409,21 +415,29 @@ set(segfigure,'Visible','on')
 
     % Track nuclei identity
     function htrack_Callback(~,~)
-        % Count cell:
-        %count_cell();
-        
+
+        % Initiating the result recorder
+        nuc.frames = [];
+        nuc.positions = [];
+        nuc.pixels = [];
+        nuc.size = [];
+        nuc.cycle = [];
+        nuc.name = [];
+        nuc.box = [];
+        nuc.filiation = [];
+        nuc.parent=[];
+
         % Create a panel to vísualize the process
         tempfig = figure('Name','tracking...');
         locframe = 1;       % Identifier for currently processed frame
         
-        
-
         CC = bwconncomp(BW(:,:,locframe),8);
         stats = regionprops(CC,'Centroid','BoundingBox');
         Nnuc(locframe) = CC.NumObjects;
         countnuc = 1;
+        
         bwtemp = zeros(sI);
-        % Allocating the nuclei array
+        % Creating nuclie information for the first panel
         for j=1:Nnuc(locframe)
             nuc.pixels{countnuc,locframe} = CC.PixelIdxList{j};
             nuc.frames(countnuc,locframe) = 1;
@@ -431,10 +445,12 @@ set(segfigure,'Visible','on')
             nuc.box{countnuc,locframe} = stats(j).BoundingBox;
             nuc.name{countnuc,locframe} = num2str(countnuc);
             nuc.filiation(countnuc,locframe) = countnuc;
+            nuc.parent(countnuc,locframe) = 0;
             bwtemp(nuc.pixels{countnuc,locframe}) =  nuc.filiation(countnuc,locframe);
             countnuc = countnuc+1;
         end
-        BWL(:,:,locframe) =  bwtemp;
+        BWL(:,:,locframe) =  bwtemp;    % BW with label
+        
         % Update the list of active nuclei 
         nucActive{locframe} = find(nuc.frames(:,locframe)==1);
         
@@ -453,105 +469,120 @@ set(segfigure,'Visible','on')
             stats = regionprops(CC,'Centroid','BoundingBox');
             Nnuc(locframe) = CC.NumObjects;
             
-            % Check whether there is division or not:
-            if Nnuc(locframe)==Nnuc(locframe-1) % no division
-                bwtemp = zeros(sI);
-                for j=1:Nnuc(locframe)
-                    bwtemp2 = zeros(sI);
-                    bwtemp2(CC.PixelIdxList{j}) = 1;
-                    bwtemp2 = bwtemp2.*BWL(:,:,locframe-1);
-                    idx = find(bwtemp2,1);
-                    ident = bwtemp2(idx);
-                    % Only process nuclei that exists in previous frame
-                    if numel(ident)
-                        nuc.pixels{ident,locframe} = CC.PixelIdxList{j};
-                        nuc.frames(ident,locframe) = 1;
-                        nuc.positions{ident,locframe} = stats(j).Centroid;
-                        nuc.box{ident,locframe} = stats(j).BoundingBox;
-                        nuc.name{ident,locframe} =  nuc.name{ident,locframe-1};
-                        nuc.filiation(ident,locframe) = ident;
-                        bwtemp(nuc.pixels{ident,locframe}) =  nuc.filiation(ident,locframe);
-                    end
+            % Create list of prev cell - curr cell
+            hits = zeros(Nnuc(locframe),1);
+            parenthits = zeros(Nnuc(locframe),1);
+            for j=1:Nnuc(locframe)
+                % Find the current cell mask
+                bwtemp2 = zeros(sI);
+                bwtemp2(CC.PixelIdxList{j}) = 1;
+                % Check if overlap with previous frame
+                bwtemp2 = bwtemp2.*BWL(:,:,locframe-1);
+                idx = find(bwtemp2,1);
+                ident = bwtemp2(idx);
+                % Tell the cell its ancestor (if any)
+                if numel(ident)
+                    hits(j) = ident;
                 end
-            else % division or gain of nuclei
-                hits = zeros(Nnuc(locframe-1),2);
-                hits(:,1) = nucActive{locframe-1};
-                for j=1:Nnuc(locframe)
-                    bwtemp2 = zeros(sI);
-                    bwtemp2(CC.PixelIdxList{j}) = 1;
-                    bwtemp2 = bwtemp2.*BWL(:,:,locframe-1);
-                    idx = find(bwtemp2,1);
-                    ident = bwtemp2(idx);
-                    hits(ident,2) = hits(ident,2)+1;
+            end
+            % Recreate new label mask
+            bwtemp = zeros(sI);
+            for j=1:Nnuc(locframe)
+                % If there are no new parents
+                if hits(j) == 0
+                    newID = size(nuc.frames,1)+1;
+                    parenthits(j)= 0;
                 end
-                idxdouble = find(hits(:,2)==2);
-                bwtemp = zeros(sI);
-                dc = 0;
-                for j=1:Nnuc(locframe)
-                    bwtemp2 = zeros(sI);
-                    bwtemp2(CC.PixelIdxList{j}) = 1;
-                    bwtemp2 = bwtemp2.*BWL(:,:,locframe-1);
-                    idx = find(bwtemp2,1);
-                    if isempty(idx)
-                        Nnuc(locframe)=Nnuc(locframe)-1;
+                % If cell has a parent
+                if (hits(j) >0)
+                    % Check cell division
+                    if sum(hits==hits(j))>1
+                        newID = size(nuc.frames,1)+1;
+                        parenthits(j)= hits(j);
                     else
-                        ident = bwtemp2(idx);
-                        if (sum(ident==idxdouble)>0)
-                            nuc.pixels{countnuc,locframe} = CC.PixelIdxList{j};
-                            nuc.frames(countnuc,locframe) = 1;
-                            nuc.positions{countnuc,locframe} = stats(j).Centroid;
-                            nuc.box{countnuc,locframe} = stats(j).BoundingBox;
-                            if dc==0
-                                nuc.name{countnuc,locframe} = strcat(nuc.name{ident,locframe-1},'A');
-                                dc = 1;
-                            elseif dc==1;
-                                nuc.name{countnuc,locframe} = strcat(nuc.name{ident,locframe-1},'B');
-                                dc = 0;
-                            end
-                            nuc.filiation(countnuc,locframe) = ident;
-                            bwtemp(nuc.pixels{countnuc,locframe}) =  nuc.filiation(countnuc,locframe);
-                            countnuc = countnuc+1;
+                        % Detect drastic change in cell size
+                        if numel(CC.PixelIdxList{j})<numel(nuc.pixels{hits(j),locframe-1})*0.6
+                            % If yes, then add new cell
+                            newID = size(nuc.frames,1)+1;
+                            parenthits(j)= hits(j);
                         else
-                            nuc.pixels{ident,locframe} = CC.PixelIdxList{j};
-                            nuc.frames(ident,locframe) = 1;
-                            nuc.positions{ident,locframe} = stats(j).Centroid;
-                            nuc.box{ident,locframe} = stats(j).BoundingBox;
-                            nuc.name{ident,locframe} = nuc.name{ident,locframe-1};
-                            nuc.filiation(ident,locframe) = ident;
-                            bwtemp(nuc.pixels{ident,locframe}) =  nuc.filiation(ident,locframe);
+                            newID = hits(j);
+                            parenthits(j)= nuc.parent(hits(j),locframe-1);
                         end
                     end
                 end
+                nuc.pixels{newID,locframe} = CC.PixelIdxList{j};
+                nuc.frames(newID,locframe) = 1;
+                nuc.positions{newID,locframe} = stats(j).Centroid;
+                nuc.box{newID,locframe} = stats(j).BoundingBox;
+                nuc.filiation(newID,locframe) = newID;
+                nuc.parent(newID,locframe) = parenthits(j);
+                if nuc.parent(newID,locframe)
+                    nuc.name{newID,locframe} = [num2str(nuc.parent(newID,locframe)) '.' num2str(newID)];
+                else
+                    nuc.name{newID,locframe} = [ num2str(newID) ];
+                end
+                bwtemp(nuc.pixels{newID,locframe}) =  nuc.filiation(newID,locframe);
             end
+            % Create new label
             BWL(:,:,locframe) =  bwtemp;
-            nucAtive{locframe} = find(nuc.frames(:,locframe)==1);
+            nucActive{locframe} = find(nuc.frames(:,locframe)==1);
+            % Prepare to draw the figures
             RGB = label2rgb(BWL(:,:,locframe),'lines','k');
             clf
             imshow(RGB,[]);
             hold on
+            % Writeout the label
             texts = cat(1,{nuc.name{nucActive{locframe},locframe}});
             posal = cat(1,nuc.positions{nucActive{locframe},locframe});
-            text(posal(:,1),posal(:,2),texts,'FontSize',14,'FontWeight','bold','Color','w','HorizontalAlignment','center')
-            text(-10,-10,strcat('frame ',num2str(locframe)),'FontSize',14,'FontWeight','bold','Color','k')
+            text(posal(:,1),posal(:,2),texts,'FontSize',10,'FontWeight','bold','Color','w','HorizontalAlignment','center')
+            text(-10,-10,strcat('frame ',num2str(locframe)),'FontSize',10,'FontWeight','bold','Color','k')
             drawnow
+            hold off;
+            %%%%%   ADD PAUSE HERE TO OBSERVE THE TRACKING PROCESS  %%%%%
+            %pause
         end
 
-%         for i=frame+1:Nf
-%             CC = bwconncomp(BW(:,:,i),8); 
-%              Nnuc(i) = CC.NumObjects;
-%              for j=1:Nnuc(i)
-%                  bwtemp = zeros(sI);
-%                  bwtemp(CC2.PixelIdxList{j}) = 1;
-%                  overlap = bwtemp.*BW(:,:,i);
-%                  idx = find(overlap==1,'first');
-%                  
-%                  [r,c] = ind2sub(sI,CC2.PixelIdxList{j});
-%                  BW2 = bwselect(BW,c,r,n);
-%              end
-%         L = labelmatrix(CC);;
-%         end
+        % THE TRACKING IS FINNISHED. EXPORT THE DATA
+        k = strfind(FileName,'.');
+        trackfile=[PathName,FileName(1:k-1),'_Track.mat'];
+        save(trackfile,'nuc','BWL');
     end
 
+    function hchecktrack_Callback(~,~)
+
+        % Create a panel to vísualize the process
+        tempfig = figure('Name','Visualizing...');
+        clf
+        
+        subplot(211);
+        locframe = frame;       % Identifier for currently processed frame
+        % Prepare to draw the figures
+        RGB = label2rgb(BWL(:,:,locframe),'lines','k');
+        imshow(RGB,[]);
+        % Writeout the label
+        texts = cat(1,{nuc.name{nucActive{locframe},locframe}});
+        posal = cat(1,nuc.positions{nucActive{locframe},locframe});
+        text(posal(:,1),posal(:,2),texts,'FontSize',10,'FontWeight','bold','Color','w','HorizontalAlignment','center')
+        text(-10,-10,strcat('frame ',num2str(locframe)),'FontSize',10,'FontWeight','bold','Color','k')
+        drawnow
+        hold off;
+        
+        subplot(212);
+        locframe = frame+1;       % Identifier for currently processed frame
+        if locframe <= Nf
+            % Prepare to draw the figures
+            RGB = label2rgb(BWL(:,:,locframe),'lines','k');
+            imshow(RGB,[]);
+            % Writeout the label
+            texts = cat(1,{nuc.name{nucActive{locframe},locframe}});
+            posal = cat(1,nuc.positions{nucActive{locframe},locframe});
+            text(posal(:,1),posal(:,2),texts,'FontSize',10,'FontWeight','bold','Color','w','HorizontalAlignment','center')
+            text(-10,-10,strcat('frame ',num2str(locframe)),'FontSize',10,'FontWeight','bold','Color','k')
+            drawnow
+            hold off;
+        end
+    end
 %% Functions
     function showI(image,bwi)
         axes(ha);
@@ -774,8 +805,10 @@ set(segfigure,'Visible','on')
             '      Space: Mask the next frame using the same setting',...
             '',...
             'Hints',...
-            '      Always save the mask before Track'...
-            '      Backup the mask often (?)'...
+            '      Always save the mask before Track',...
+            '      Backup the mask often (?)',...
+            '      You can check the segmentation process by adding Pause at the end of the htrack_CallBack function',...
+            '      When you segment, avoid having cell fluctualing too much in mask size', ...
             };
         msgbox(Msg,'Help','help')
     end
