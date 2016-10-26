@@ -147,8 +147,8 @@ imshow(ImgOp);
 
 hbw = axes('Parent',segfigure);
 
-imshow = zeros(100,100);
-imagesc(BWop);
+BWop = zeros(100,100);
+imshow(BWop);
 
 % Change units to normalized so components resize automatically.
 set([segfigure,ha,hmessages...
@@ -174,44 +174,49 @@ set(segfigure,'Visible','on')
     end
 
     function hloadbutton_Callback(~,~)
-        [FileName,PathName,FilterIndex] = uigetfile('*.tif','Select the tif file');
-        set(hpath,'String',[PathName,FileName]);
-        info = imfinfo([PathName,FileName]);
-        Nf = length(info);
-        Wd = info(1).Width;
-        Hg = info(1).Height;
-        sI = [Hg,Wd];
-        Img = [];
-        BW = zeros(Hg,Wd,Nf);
-        BWL = zeros(Hg,Wd,Nf);
-        Nnuc = zeros(Nf,1);
-        h = waitbar(0,'Loading image');
-        for i=1:Nf
-            waitbar(i/Nf,h)
-            Img = cat(3,Img,imread([PathName,FileName],i));
+        [FileName_,PathName_,FilterIndex_] = uigetfile('*.tif','Select the tif file');
+        if FileName_
+            FileName=FileName_;
+            PathName=PathName_;
+            FilterIndex=FilterIndex_;
+            set(hpath,'String',[PathName,FileName]);
+            info = imfinfo([PathName,FileName]);
+            Nf = length(info);
+            Wd = info(1).Width;
+            Hg = info(1).Height;
+            sI = [Hg,Wd];
+            Img = [];
+            BW = zeros(Hg,Wd,Nf);
+            BWL = zeros(Hg,Wd,Nf);
+            Nnuc = zeros(Nf,1);
+            h = waitbar(0,'Loading image');
+            for i=1:Nf
+                waitbar(i/Nf,h)
+                Img = cat(3,Img,imread([PathName,FileName],i));
+            end
+            close(h);
+            distavai=get(hshow,'Position');
+            sI = size(Img(:,:,1));
+            sI_=(distavai(2)-0.07)*sI/sI(1)/2;
+            figaspect=get(segfigure,'PaperPosition');
+            figaspect=figaspect(4)/figaspect(3);
+            panelI_X1 = 0.05;
+            panelI_X2 = sI_(2)*figaspect;
+            panelI_Y1 = 0.05;
+            panelI_Y2 = sI_(1);
+            set(ha,'Units','Normalized');
+            set(ha,'Position',[panelI_X1,panelI_Y1,panelI_X2,panelI_Y2]);
+            axis normal
+            set(hbw,'Units','Normalized');
+            set(hbw,'Position',[panelI_X1,panelI_Y1+sI_(1)+0.01,panelI_X2,panelI_Y2]);
+
+            BW(:,:,1) = im2bw(Img(:,:,1),graythresh(Img));
+            axis normal
+            showI(Img(:,:,1),BW(:,:,1));
+            set(hframe,'max',Nf,'SliderStep',[1/(Nf-1) 0.2])
+            set(hmessages,'String',['Loaded. Frame ',num2str(frame)]);
+            set(hautosegfwf,'String',num2str(Nf));
         end
-        close(h);
-        distavai=get(hshow,'Position');
-        sI = size(Img(:,:,1));
-        sI=(distavai(2)-0.07)*sI/sI(1)/2;
-        figaspect=get(segfigure,'PaperPosition');
-        figaspect=figaspect(4)/figaspect(3);
-        panelI_X1 = 0.05;
-        panelI_X2 = sI(2)*figaspect;
-        panelI_Y1 = 0.05;
-        panelI_Y2 = sI(1);
-        set(ha,'Units','Normalized');
-        set(ha,'Position',[panelI_X1,panelI_Y1,panelI_X2,panelI_Y2]);
-        axis normal
-        set(hbw,'Units','Normalized');
-        set(hbw,'Position',[panelI_X1,panelI_Y1+sI(1)+0.01,panelI_X2,panelI_Y2]);
-        
-        BW(:,:,1) = im2bw(Img(:,:,1),graythresh(Img));
-        axis normal
-        showI(Img(:,:,1),BW(:,:,1));
-        set(hframe,'max',Nf,'SliderStep',[1/(Nf-1) 0.2])
-        set(hmessages,'String',['Loaded. Frame ',num2str(frame)]);
-        set(hautosegfwf,'String',num2str(Nf));
     end
 
     function hframe_Callback(~,~)
@@ -246,23 +251,29 @@ set(segfigure,'Visible','on')
         end
     end
 
+    % Add filter to the images
     function hopen_Callback(~,~)
+        img=Img(:,:,frame);
         open = get(hopen,'Value');
         open = round(open);
         set(hopen,'Value',open);
+        ratiostrel=1.5;
         switch seg
             case 0 %soft
                 f1 = fspecial('Gaussian', open, open/3);
-                background = imopen(Img(:,:,frame),strel('disk',20));
-                BW(:,:,frame) = imfilter(Img(:,:,frame)-background,f1,'replicate');
+                % Extract the background from image:
+                
+                background = imopen(img,strel('disk',round(open*ratiostrel)));
+                
+                BW(:,:,frame) = imfilter(img-background,f1,'replicate');
                 %f2 = fspecial('Gaussian', open, open/2);
                 %df = f1-2.*f2;
                 %BW(:,:,frame) = conv2(double(Img(:,:,frame)), df, 'same');
                 %BW(:,:,frame) = imcomplement(BW(:,:,frame));
             case 1 %hard
                 f1 = fspecial('Gaussian', open, open/3);
-                background = imopen(Img(:,:,frame),strel('disk',20));
-                BW(:,:,frame) = imfilter(Img(:,:,frame)-background,f1,'replicate');
+                background = imopen(img,strel('disk',round(open*ratiostrel)));
+                BW(:,:,frame) = imfilter(img-background,f1,'replicate');
         end
         showop(BW(:,:,frame));
         set(hmessages,'String',['Frame ',num2str(frame)]);
@@ -313,6 +324,7 @@ set(segfigure,'Visible','on')
         showI(Img(:,:,frame),BW(:,:,frame));
     end
 
+    % Use the current mask to segment
     function hsegment_Callback(~,~)
         switch seg
             case 0% soft
@@ -483,7 +495,7 @@ set(segfigure,'Visible','on')
         nucActive{locframe} = find(nuc.frames(:,locframe)==1);
         
         RGB = label2rgb(BWL(:,:,locframe),'lines','k');
-        imagesc(RGB,[]);
+        imshow(RGB,[]);
         hold on
         texts = cat(1,{nuc.name{nucActive{locframe},locframe}});
         posal = cat(1,nuc.positions{nucActive{locframe},locframe});
@@ -506,11 +518,18 @@ set(segfigure,'Visible','on')
                 bwtemp2(CC.PixelIdxList{j}) = 1;
                 % Check if overlap with previous frame
                 bwtemp2 = bwtemp2.*BWL(:,:,locframe-1);
-                idx = find(bwtemp2,1);
-                ident = bwtemp2(idx);
-                % Tell the cell its ancestor (if any)
+                % Check if overlap with two cells - choose the bigger one
+                ident = sort(unique(bwtemp2));
+                ident=ident(ident>0);
                 if numel(ident)
-                    hits(j) = ident;
+                    if numel(ident)>1
+                        nsize=arrayfun(@(x) sum(bwtemp2(:)==x),ident);
+                        [~,tmp]=max(nsize);
+                    else
+                        tmp=1;
+                    end
+                    % Assign the cell ancestor
+                    hits(j)=ident(tmp(1));
                 end
             end
             % Recreate new label mask
@@ -529,7 +548,7 @@ set(segfigure,'Visible','on')
                         parenthits(j)= hits(j);
                     else
                         % Detect drastic change in cell size
-                        if numel(CC.PixelIdxList{j})<numel(nuc.pixels{hits(j),locframe-1})*0.6
+                        if numel(CC.PixelIdxList{j})<numel(nuc.pixels{hits(j),locframe-1})*0.5
                             % If yes, then add new cell
                             newID = size(nuc.frames,1)+1;
                             parenthits(j)= hits(j);
@@ -563,7 +582,7 @@ set(segfigure,'Visible','on')
             % Prepare to draw the figures
             RGB = label2rgb(BWL(:,:,locframe),'lines','k');
             clf
-            imagesc(RGB,[]);
+            imshow(RGB,[]);
             hold on
             % Writeout the label
             texts = cat(1,{nuc.name{nucActive{locframe},locframe}});
@@ -650,9 +669,9 @@ set(segfigure,'Visible','on')
         if (get(hcheckecc,'Value') ==1)&&(numel(unique(bwi))>1)
             % Find odd looking cells
             CC = bwconncomp(bwi,8);
-            stats = regionprops(CC,'Eccentricity');
+            stats = regionprops(CC,'Eccentricity','Area');
             sizerec = cellfun(@numel,CC.PixelIdxList);
-            oddnuclei=find(([stats.Eccentricity]>0.8)|(sizerec<50));
+            oddnuclei=find(([stats.Eccentricity]>0.8)|(sizerec<50)|([stats.Area]<median([stats.Area])*0.3));
             if numel(oddnuclei)
                 bwshow=bwi*0.6;
             end
