@@ -141,12 +141,14 @@ panelI_X1 = 40;
 panelI_X2 = panelI_X1+sI(2);
 panelI_Y1 = 40;
 panelI_Y2 = panelI_Y1+sI(1);
-ha = axes('Units','Pixels','Position',[panelI_X1,panelI_Y1,panelI_X2,panelI_Y2]);
+
+ha = axes('Parent',segfigure);
 imshow(ImgOp);
 
-hbw = axes('Units','Pixels','Position',[panelI_X1,panelI_Y1+sI(1)+30,panelI_X2,panelI_Y2]);
-BWop = zeros(100,100);
-imshow(BWop);
+hbw = axes('Parent',segfigure);
+
+imshow = zeros(100,100);
+imagesc(BWop);
 
 % Change units to normalized so components resize automatically.
 set([segfigure,ha,hmessages...
@@ -183,21 +185,29 @@ set(segfigure,'Visible','on')
         BW = zeros(Hg,Wd,Nf);
         BWL = zeros(Hg,Wd,Nf);
         Nnuc = zeros(Nf,1);
+        h = waitbar(0,'Loading image');
         for i=1:Nf
+            waitbar(i/Nf,h)
             Img = cat(3,Img,imread([PathName,FileName],i));
         end
+        close(h);
+        distavai=get(hshow,'Position');
         sI = size(Img(:,:,1));
-        panelI_X1 = 40;
-        panelI_X2 = panelI_X1+sI(2);
-        panelI_Y1 = 40;
-        panelI_Y2 = panelI_Y1+sI(1);
-        ha = axes('Units','Pixels','Position',[panelI_X1,panelI_Y1,panelI_X2,panelI_Y2]);
-        %imshow(ImgOp);
+        sI=(distavai(2)-0.07)*sI/sI(1)/2;
+        figaspect=get(segfigure,'PaperPosition');
+        figaspect=figaspect(4)/figaspect(3);
+        panelI_X1 = 0.05;
+        panelI_X2 = sI(2)*figaspect;
+        panelI_Y1 = 0.05;
+        panelI_Y2 = sI(1);
+        set(ha,'Units','Normalized');
+        set(ha,'Position',[panelI_X1,panelI_Y1,panelI_X2,panelI_Y2]);
+        axis normal
+        set(hbw,'Units','Normalized');
+        set(hbw,'Position',[panelI_X1,panelI_Y1+sI(1)+0.01,panelI_X2,panelI_Y2]);
         
-        hbw = axes('Units','Pixels','Position',[panelI_X1,panelI_Y1+sI(1)+30,panelI_X2,panelI_Y2]);
         BW(:,:,1) = im2bw(Img(:,:,1),graythresh(Img));
-        %imshow(BWop);
-        
+        axis normal
         showI(Img(:,:,1),BW(:,:,1));
         set(hframe,'max',Nf,'SliderStep',[1/(Nf-1) 0.2])
         set(hmessages,'String',['Loaded. Frame ',num2str(frame)]);
@@ -271,12 +281,21 @@ set(segfigure,'Visible','on')
         BW(:,:,frame) = BW(:,:,frame)-BW2;
         showI(Img(:,:,frame),BW(:,:,frame));
     end
-
+    
+    % Add a mask
     function hadd_Callback(~,~)
         r = getrect(ha);
-        tempfig = figure('Name','please draw the nucleus');        
+        tempfig = figure('Name','please draw the nucleus');
         locI = imcrop(Img(:,:,frame),r);
-        imshow(locI);
+        locBW= imcrop(BW(:,:,frame),r);
+        locsize = size(locI);
+        ImBW = zeros(locsize(1),locsize(2),3);
+        ImBW(:,:,1)=double(locI);
+        ImBW(:,:,2)=double(locI);
+        ImBW(:,:,3)=double(locI);
+        ImBW(:,:,2)=ImBW(:,:,2).*imcomplement(locBW);
+        ImBW(:,:,3)=ImBW(:,:,3).*imcomplement(locBW);
+        imshow(uint8(ImBW));
         % Resize the frame 2x for better draw
         framesize=get(gca,'Position');zoomlv=2;
         set(gca,'Position',[0 0 framesize(3:4)*zoomlv]);
@@ -352,7 +371,7 @@ set(segfigure,'Visible','on')
 %                 centers = centerdisks(centers,R,num,Img(:,:,frame),SE);
                 showI(Img(:,:,frame),BW(:,:,frame)); 
                 axes(hbw)
-                imshowpair(Img(:,:,frame),BW(:,:,frame),'blend')
+                imagepair(Img(:,:,frame),BW(:,:,frame),'blend')
                 
                 for i=frame+1:framefin
                     centers = centerdisks(centers,R,num,Img(:,:,i-1),Img(:,:,i));
@@ -360,7 +379,7 @@ set(segfigure,'Visible','on')
                     BW(:,:,i) = makedisk(R,centers);
                     showI(Img(:,:,i),BW(:,:,i));
                     axes(hbw)
-                    imshowpair(Img(:,:,i),BW(:,:,i),'blend')
+                    imagepair(Img(:,:,i),BW(:,:,i),'blend')
                     set(hmessages,'String',['Frame ',num2str(i)]);
                     drawnow;
                 end
@@ -417,22 +436,26 @@ set(segfigure,'Visible','on')
     function htrack_Callback(~,~)
 
         % Initiating the result recorder
-        nuc.frames = [];
-        nuc.positions = [];
-        nuc.pixels = [];
-        nuc.size = [];
-        nuc.cycle = [];
-        nuc.name = [];
-        nuc.box = [];
-        nuc.filiation = [];
-        nuc.parent=[];
+        nuc.frames = [];        % frame: existing or not
+        nuc.positions = {};     % Position x, y
+        nuc.pixels = [];        % List of pixels    
+        nuc.cl = [];            % Cell cycle
+        nuc.name = [];          % name of nuclei (parentID.myID)
+        nuc.ind = [];           % Id of nuclei
+        nuc.parent=[];          % Parent of nuclei
+        nuc.daughters={};       % Daughter of nuclei
+        nuc.area = [];          % Area of nuclei        
+        nuc.radius = [];        % Radius (approximated by nuclei size)
+        nuc.ecc = [];           % Eccentricity        
+        nuc.ang = [];           % Angle
+        
 
         % Create a panel to vísualize the process
         tempfig = figure('Name','tracking...');
         locframe = 1;       % Identifier for currently processed frame
         
         CC = bwconncomp(BW(:,:,locframe),8);
-        stats = regionprops(CC,'Centroid','BoundingBox');
+        stats = regionprops(CC,'Centroid','Eccentricity','Orientation');
         Nnuc(locframe) = CC.NumObjects;
         countnuc = 1;
         
@@ -442,11 +465,16 @@ set(segfigure,'Visible','on')
             nuc.pixels{countnuc,locframe} = CC.PixelIdxList{j};
             nuc.frames(countnuc,locframe) = 1;
             nuc.positions{countnuc,locframe} = stats(j).Centroid;
-            nuc.box{countnuc,locframe} = stats(j).BoundingBox;
             nuc.name{countnuc,locframe} = num2str(countnuc);
-            nuc.filiation(countnuc,locframe) = countnuc;
+            nuc.ind(countnuc,locframe) = countnuc;
             nuc.parent(countnuc,locframe) = 0;
-            bwtemp(nuc.pixels{countnuc,locframe}) =  nuc.filiation(countnuc,locframe);
+            nuc.daughter{countnuc,locframe} = [0 0];
+            nuc.area(countnuc,locframe) = numel(nuc.pixels{countnuc,locframe});            
+            nuc.radius(countnuc,locframe) = sqrt(nuc.area(countnuc,locframe)/pi);
+            nuc.ecc(countnuc,locframe) = stats(j).Eccentricity;
+            nuc.ecc(countnuc,locframe) = stats(j).Orientation;
+            
+            bwtemp(nuc.pixels{countnuc,locframe}) =  nuc.ind(countnuc,locframe);
             countnuc = countnuc+1;
         end
         BWL(:,:,locframe) =  bwtemp;    % BW with label
@@ -455,7 +483,7 @@ set(segfigure,'Visible','on')
         nucActive{locframe} = find(nuc.frames(:,locframe)==1);
         
         RGB = label2rgb(BWL(:,:,locframe),'lines','k');
-        imshow(RGB,[]);
+        imagesc(RGB,[]);
         hold on
         texts = cat(1,{nuc.name{nucActive{locframe},locframe}});
         posal = cat(1,nuc.positions{nucActive{locframe},locframe});
@@ -466,7 +494,7 @@ set(segfigure,'Visible','on')
         for i=2:Nf
             locframe = i;
             CC = bwconncomp(BW(:,:,locframe),8);
-            stats = regionprops(CC,'Centroid','BoundingBox');
+            stats = regionprops(CC,'Centroid','Eccentricity','Orientation');
             Nnuc(locframe) = CC.NumObjects;
             
             % Create list of prev cell - curr cell
@@ -514,15 +542,20 @@ set(segfigure,'Visible','on')
                 nuc.pixels{newID,locframe} = CC.PixelIdxList{j};
                 nuc.frames(newID,locframe) = 1;
                 nuc.positions{newID,locframe} = stats(j).Centroid;
-                nuc.box{newID,locframe} = stats(j).BoundingBox;
-                nuc.filiation(newID,locframe) = newID;
+                nuc.ind(newID,locframe) = newID;
                 nuc.parent(newID,locframe) = parenthits(j);
+                nuc.daughter{newID,locframe} = [0 0];
+                nuc.area(newID,locframe) = numel(nuc.pixels{newID,locframe});
+                nuc.ecc(newID,locframe) = stats(j).Eccentricity;
+                nuc.ecc(newID,locframe) = stats(j).Orientation;
+                nuc.radius(newID,locframe) = sqrt(nuc.area(newID,locframe)/pi);
+                
                 if nuc.parent(newID,locframe)
                     nuc.name{newID,locframe} = [num2str(nuc.parent(newID,locframe)) '.' num2str(newID)];
                 else
                     nuc.name{newID,locframe} = [ num2str(newID) ];
                 end
-                bwtemp(nuc.pixels{newID,locframe}) =  nuc.filiation(newID,locframe);
+                bwtemp(nuc.pixels{newID,locframe}) =  nuc.ind(newID,locframe);
             end
             % Create new label
             BWL(:,:,locframe) =  bwtemp;
@@ -530,7 +563,7 @@ set(segfigure,'Visible','on')
             % Prepare to draw the figures
             RGB = label2rgb(BWL(:,:,locframe),'lines','k');
             clf
-            imshow(RGB,[]);
+            imagesc(RGB,[]);
             hold on
             % Writeout the label
             texts = cat(1,{nuc.name{nucActive{locframe},locframe}});
@@ -542,7 +575,15 @@ set(segfigure,'Visible','on')
             %%%%%   ADD PAUSE HERE TO OBSERVE THE TRACKING PROCESS  %%%%%
             %pause
         end
-
+        % Find the daughter of nuclei
+        % Scan the cells
+        for j=1:size(nuc.frames,1)
+            % Find the cell ID
+            indj=max(nuc.ind(j,:));            
+            % Find its daughters
+            daughter_true=unique(nuc.ind((nuc.parent==indj)));
+            nuc.daughter((nuc.ind==indj))={daughter_true};
+        end
         % THE TRACKING IS FINNISHED. EXPORT THE DATA
         k = strfind(FileName,'.');
         trackfile=[PathName,FileName(1:k-1),'_Track.mat'];
@@ -584,42 +625,49 @@ set(segfigure,'Visible','on')
         end
     end
 %% Functions
-    function showI(image,bwi)
+    function showI(img,bwi)
+        colormap gray
         axes(ha);
         if ~exist('bwi','var')
-            bwi=zeros(size(image));
+            bwi=zeros(size(img));
         end
         if showBW == 0
-            imshow(image);
+            imagesc(img,[0 256]);
         end
         if showBW == 1
-            locsize = size(image);
+            locsize = size(img);
             ImBW = zeros(locsize(1),locsize(2),3);
-            ImBW(:,:,1)=double(image);
-            ImBW(:,:,2)=double(image);
-            ImBW(:,:,3)=double(image);
+            ImBW(:,:,1)=double(img);
+            ImBW(:,:,2)=double(img);
+            ImBW(:,:,3)=double(img);
             ImBW(:,:,2)=ImBW(:,:,2).*imcomplement(bwi);
             ImBW(:,:,3)=ImBW(:,:,3).*imcomplement(bwi);
-            imshow(uint8(ImBW));
+            imagesc(uint8(ImBW),[0 256]);
         end
         axes(hbw);
-        bwodd=zeros(size(bwi));        
+        bwshow=bwi;
+        bwodd=zeros(size(bwi));
         if (get(hcheckecc,'Value') ==1)&&(numel(unique(bwi))>1)
             % Find odd looking cells
             CC = bwconncomp(bwi,8);
             stats = regionprops(CC,'Eccentricity');
             sizerec = cellfun(@numel,CC.PixelIdxList);
             oddnuclei=find(([stats.Eccentricity]>0.8)|(sizerec<50));
+            if numel(oddnuclei)
+                bwshow=bwi*0.6;
+            end
             for i=oddnuclei
                 bwodd(CC.PixelIdxList{i})=1;
             end
         end
-        imshow(bwi*0.6+bwodd,[]);
+        bwshow=bwshow+bwodd;
+        bwshow(bwshow>1)=1;
+        imagesc(bwshow,[0 1]);
     end
 
     function showop(opimage)
         axes(hbw);
-        imshow(opimage,[]);
+        imagesc(opimage,[0 256]);
     end
 
     function bwo = segment(bw)
@@ -664,7 +712,7 @@ set(segfigure,'Visible','on')
 
     function [centers,R,num] = getdisks(bw)
         [BL,num] = bwlabel(bw);
-        s  = regionprops(BL,'centroid','Area','BoundingBox');
+        s  = regionprops(BL,'centroid','Area');
         area = cat(1, s.Area);
         centers = cat(1, s.Centroid);
         centers = round(centers);
@@ -679,7 +727,7 @@ set(segfigure,'Visible','on')
         pIm1 = padarray(Im1,[padsize padsize],'symmetric');
         pIm2 = padarray(Im2,[padsize padsize],'symmetric');
         figure()
-        imshow(pIm2,[])
+        imagesc(pIm2,[])
         hold on
 %          w=hann(3*R+1);
 %          [maskr,maskc]=meshgrid(w,w);
@@ -749,7 +797,7 @@ set(segfigure,'Visible','on')
             BW(:,:,locframe) = imdilate(BW(:,:,locframe),strel('diamond',3));
 
             CC = bwconncomp(BW(:,:,locframe),8);
-            stats = regionprops(CC,'Centroid','BoundingBox');
+            stats = regionprops(CC,'Centroid');
             Nnuc(locframe) = CC.NumObjects;
        end
        figure;
