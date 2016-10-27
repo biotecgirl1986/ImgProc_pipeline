@@ -22,7 +22,7 @@ FilterIndex = '';
 frame = 1;
 frameinit = 1;
 framefin = 150;
-Nf = 150;
+Nf = 1e5;           % Update Nf if only wish to mask till that frame
 showBW = 0;
 Img = [];
 BW = [];
@@ -31,8 +31,9 @@ Nnuc = [];
 nucActive = {};
 open = 1;
 seg = 0;
+Cycle0=0;           % Cell cycle at frame 0
 
-nuc = struct;    % Record of nuclei
+nuc = struct;       % Record of nuclei
 
 
 %% Create and hide the GUI figure as it is being constructed.
@@ -134,6 +135,10 @@ hchecktrack = uicontrol('Style','pushbutton','String', 'Check Track',...
     'Position',[760,670,100,40],...
     'Callback',@hchecktrack_Callback);
 
+hvisualizetract = uicontrol('Style','pushbutton','String', 'Plot lineage tree',...
+    'Position',[880,670,100,40],...
+    'Callback',@hvisualizetrack_Callback);
+
 %% Create axes and display image
 ImgOp = zeros(100,100);
 sI = size(ImgOp);
@@ -181,7 +186,18 @@ set(segfigure,'Visible','on')
             FilterIndex=FilterIndex_;
             set(hpath,'String',[PathName,FileName]);
             info = imfinfo([PathName,FileName]);
-            Nf = length(info);
+            inpNf=inputdlg({'Enter max frame number (Type 0 if you want analyze the whole movie)',...
+                'Cell cycle at frame 1'});
+            if str2num(inpNf{1})
+                Nf= str2num(inpNf{1});
+            else
+                Nf = length(info);
+            end
+            if str2num(inpNf{2})
+                Cycle0= str2num(inpNf{2});
+            else
+                Cycle0 = 0;
+            end
             Wd = info(1).Width;
             Hg = info(1).Height;
             sI = [Hg,Wd];
@@ -427,7 +443,7 @@ set(segfigure,'Visible','on')
 
     function hsavebw_Callback(~,~)
         k = strfind(FileName,'.');
-        maskfile=[PathName,FileName(1:k-1),'_Mask.mat'];
+        maskfile=[PathName,FileName(1:k-1),'_Mask_' num2str(Nf) '.mat'];
         if ~exist(maskfile,'file')
             save(maskfile,'BW');
         else
@@ -439,14 +455,18 @@ set(segfigure,'Visible','on')
 
     function hloadbw_Callback(~,~)
         k = strfind(FileName,'.');
-        temp = load([PathName,FileName(1:k-1),'_Mask.mat']);
-        BW = temp.BW;
-        showI(BW(:,:,frame))
+        try
+            temp = load([PathName,FileName(1:k-1),'_Mask_' num2str(Nf) '.mat']);
+            BW = temp.BW;
+            showI(BW(:,:,frame))
+        catch
+            msgbox('No mask file found');
+        end
     end
 
     % Track nuclei identity
     function htrack_Callback(~,~)
-
+        
         % Initiating the result recorder
         nuc.frames = [];        % frame: existing or not
         nuc.positions = {};     % Position x, y
@@ -455,12 +475,12 @@ set(segfigure,'Visible','on')
         nuc.name = [];          % name of nuclei (parentID.myID)
         nuc.ind = [];           % Id of nuclei
         nuc.parent=[];          % Parent of nuclei
-        nuc.daughters={};       % Daughter of nuclei
+        nuc.daughter={};       % Daughter of nuclei
         nuc.area = [];          % Area of nuclei        
         nuc.radius = [];        % Radius (approximated by nuclei size)
         nuc.ecc = [];           % Eccentricity        
         nuc.ang = [];           % Angle
-        
+        nuc.cycle = [];         % Cell cycle
 
         % Create a panel to vísualize the process
         tempfig = figure('Name','tracking...');
@@ -485,7 +505,6 @@ set(segfigure,'Visible','on')
             nuc.radius(countnuc,locframe) = sqrt(nuc.area(countnuc,locframe)/pi);
             nuc.ecc(countnuc,locframe) = stats(j).Eccentricity;
             nuc.ecc(countnuc,locframe) = stats(j).Orientation;
-            
             bwtemp(nuc.pixels{countnuc,locframe}) =  nuc.ind(countnuc,locframe);
             countnuc = countnuc+1;
         end
@@ -558,6 +577,7 @@ set(segfigure,'Visible','on')
                         end
                     end
                 end
+                % Set attributes to nuclei: nuc(newframe)
                 nuc.pixels{newID,locframe} = CC.PixelIdxList{j};
                 nuc.frames(newID,locframe) = 1;
                 nuc.positions{newID,locframe} = stats(j).Centroid;
@@ -566,9 +586,8 @@ set(segfigure,'Visible','on')
                 nuc.daughter{newID,locframe} = [0 0];
                 nuc.area(newID,locframe) = numel(nuc.pixels{newID,locframe});
                 nuc.ecc(newID,locframe) = stats(j).Eccentricity;
-                nuc.ecc(newID,locframe) = stats(j).Orientation;
+                nuc.ang(newID,locframe) = stats(j).Orientation;
                 nuc.radius(newID,locframe) = sqrt(nuc.area(newID,locframe)/pi);
-                
                 if nuc.parent(newID,locframe)
                     nuc.name{newID,locframe} = [num2str(nuc.parent(newID,locframe)) '.' num2str(newID)];
                 else
@@ -595,17 +614,44 @@ set(segfigure,'Visible','on')
             %pause
         end
         % Find the daughter of nuclei
-        % Scan the cells
         for j=1:size(nuc.frames,1)
             % Find the cell ID
             indj=max(nuc.ind(j,:));            
             % Find its daughters
             daughter_true=unique(nuc.ind((nuc.parent==indj)));
+            while numel(daughter_true)<2
+                daughter_true=[daughter_true 0];
+            end
             nuc.daughter((nuc.ind==indj))={daughter_true};
         end
+        % Find the cell cycle
+        try
+            numcell=sum(nuc.frames,1);  % Extract cell number per frame
+            max_mitosis=4;              % Maximum of frame that mitosis exists
+            change_cc=[(numcell(1+max_mitosis:end))./numcell(1:end-max_mitosis)]>1.5;  % Find the changes in nuclei number
+            for j=numel(change_cc):-1:max_mitosis+1 % Clean big chunk of increases
+                if change_cc(j)
+                    change_cc(j-1:-1:j-max_mitosis)=0;
+                end
+            end
+            change_bw=cumsum([zeros(1,max_mitosis) change_cc])+Cycle0;
+            change_cc=[(numcell(1+max_mitosis:end))./numcell(1:end-max_mitosis)]>1.5;  % Find the changes in nuclei number
+            for j=1:1:numel(change_cc)-max_mitosis % Clean big chunk of increases
+                if change_cc(j)
+                    change_cc(j+1:1:j+max_mitosis)=0;            
+                end
+            end
+            change_fw=cumsum([change_cc zeros(1,max_mitosis)])+Cycle0;
+            for i=1:size(nuc.frames,1)
+                nuc.cycle(i,:)=(change_bw+change_fw)/2;
+            end
+        catch
+            msgbox('Cannot find cell cycle: check segmentation consistency');
+        end
+        
         % THE TRACKING IS FINNISHED. EXPORT THE DATA
         k = strfind(FileName,'.');
-        trackfile=[PathName,FileName(1:k-1),'_Track.mat'];
+        trackfile=[PathName,FileName(1:k-1),'_Track_' num2str(Nf) '.mat'];
         save(trackfile,'nuc','BWL');
     end
 
@@ -642,6 +688,24 @@ set(segfigure,'Visible','on')
             drawnow
             hold off;
         end
+    end
+
+    function hvisualizetrack_Callback(~,~)
+        % Load track file
+        k = strfind(FileName,'.');
+        trackfile=[PathName,FileName(1:k-1),'_Track_' num2str(Nf) '.mat'];
+        load(trackfile,'nuc');
+        % Contruct the tree:
+        tree_parent=[];
+        tree_time=[];
+        for i=1:size(nuc.frames,1)
+            ttmp=find(nuc.frames(i,:),1,'first');
+            idcell=nuc.ind(i,ttmp);
+            tree_time(idcell)=ttmp;
+            tree_parent(idcell)=nuc.parent(i,ttmp);
+        end
+        figure;
+        draw_tree(tree_parent,tree_time,nuc.cycle(1,:));        
     end
 %% Functions
     function showI(img,bwi)
@@ -807,21 +871,6 @@ set(segfigure,'Visible','on')
         hsegment_Callback();        
     end
     
-    function count_cell()
-        for locframe=1:Nf
-            % Remove small errors in the first frame
-            BW(:,:,locframe) = imfill(BW(:,:,locframe),'holes');
-            BW(:,:,locframe) = imerode(BW(:,:,locframe),strel('diamond',3));
-            BW(:,:,locframe) = bwareaopen(BW(:,:,locframe),50);
-            BW(:,:,locframe) = imdilate(BW(:,:,locframe),strel('diamond',3));
-
-            CC = bwconncomp(BW(:,:,locframe),8);
-            stats = regionprops(CC,'Centroid');
-            Nnuc(locframe) = CC.NumObjects;
-       end
-       figure;
-       plot(Nnuc);
-    end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % HOTKEY HOTKEY HOTKEY
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
