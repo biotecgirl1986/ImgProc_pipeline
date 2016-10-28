@@ -7,6 +7,7 @@ clc;       %reset the writing space
 mov_folder='../Test/';               %indicate the full path movies file
 spot_mov='testmovie_ms2';            %title of spot movie
 nuclei_mov='Substack (1-50)_max';    %title of nuclei movie
+convert_tiff=1;                      % Convert from multi-slice movie to normal movie
 
 %frame for segmentation file
 seg_init = 1;
@@ -43,7 +44,7 @@ fact_r=1.3;             % tolerance radius (if fact_r=1) the distance is equal t
 %be rescaled a lot, also by a factor 0.25
 %the obtained coordinate will be rescaled back
 %this operation saves memory and computing time
-ms2_mov = [mov_folder spot_mov];          
+ms2_mov = [mov_folder spot_mov];
 seg_mov = [mov_folder nuclei_mov];
 rescale=1; %the nup images are rescaled by a factor equal to rescale
 x_resolution=x_resolution/rescale;
@@ -68,6 +69,13 @@ Is=imread([ms2_mov '.tif'],1);
 
 Lx2=size(Is,1);
 Ly2=size(Is,2);
+
+max_frame = zmax*it_end;
+
+% Convert the spot movie if needed
+if convert_tiff
+    ms2_mov = conv_tiff(ms2_mov,Lx2,Ly2,max_frame);
+end
 
 window_around_spot=40;  %pixels, this is the window around the spot to do the gaussian fit, 40 pixels should be fine for the usual resolution 2048x2048
 
