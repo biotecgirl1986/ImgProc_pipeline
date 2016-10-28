@@ -74,7 +74,7 @@ max_frame = zmax*it_end;
 
 % Convert the spot movie if needed
 if convert_tiff
-    ms2_mov = conv_tiff(ms2_mov,Lx2,Ly2,max_frame);
+    ms2_mov = conv_tiff(ms2_mov,max_frame);
 end
 
 window_around_spot=40;  %pixels, this is the window around the spot to do the gaussian fit, 40 pixels should be fine for the usual resolution 2048x2048
